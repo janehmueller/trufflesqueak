@@ -55,6 +55,22 @@ public final class ReturnBytecodes {
         protected Object getReturnValue(final VirtualFrame frame) {
             throw SqueakException.create("Needs to be overriden");
         }
+
+        protected final Object nonLocalReturn(final VirtualFrame frame, final GetActiveProcessNode getActiveProcessNode) {
+            // Target is sender of closure's home context.
+            final ContextObject homeContext = FrameAccess.getClosure(frame).getHomeContext();
+            assert homeContext.getProcess() != null;
+            final Object caller = homeContext.getFrameSender();
+            if (caller == NilObject.SINGLETON || homeContext.getProcess() != getActiveProcessNode.execute()) {
+                /* Cannot return because caller is either nil or homeContext is not on stack. */
+                CompilerDirectives.transferToInterpreter();
+                final ContextObject contextObject = GetOrCreateContextNode.getOrCreateFromActiveProcessUncached(frame);
+                lookupContext().cannotReturn.executeAsSymbolSlow(frame, contextObject, getReturnValue(frame));
+                throw SqueakException.create("Should not reach");
+            } else {
+                throw new NonLocalReturn(getReturnValue(frame), caller);
+            }
+        }
     }
 
     protected abstract static class AbstractReturnWithSpecializationsNode extends AbstractReturnNode {
@@ -77,18 +93,7 @@ public final class ReturnBytecodes {
         @Specialization(guards = {"code.isCompiledBlock()"})
         protected final Object doClosureReturnFromMaterialized(final VirtualFrame frame,
                         @Cached final GetActiveProcessNode getActiveProcessNode) {
-            // Target is sender of closure's home context.
-            final ContextObject homeContext = FrameAccess.getClosure(frame).getHomeContext();
-            assert homeContext.getProcess() != null;
-            final Object caller = homeContext.getFrameSender();
-            final boolean homeContextNotOnTheStack = homeContext.getProcess() != getActiveProcessNode.execute();
-            if (caller == NilObject.SINGLETON || homeContextNotOnTheStack) {
-                CompilerDirectives.transferToInterpreter();
-                final ContextObject contextObject = GetOrCreateContextNode.getOrCreateFromActiveProcessUncached(frame);
-                lookupContext().cannotReturn.executeAsSymbolSlow(frame, contextObject, getReturnValue(frame));
-                throw SqueakException.create("Should not reach");
-            }
-            throw new NonLocalReturn(getReturnValue(frame), caller);
+            return nonLocalReturn(frame, getActiveProcessNode);
         }
     }
 
@@ -196,18 +201,7 @@ public final class ReturnBytecodes {
         @Specialization(guards = {"hasModifiedSender(frame)"})
         protected final Object doNonLocalReturnClosure(final VirtualFrame frame,
                         @Cached final GetActiveProcessNode getActiveProcessNode) {
-            // Target is sender of closure's home context.
-            final ContextObject homeContext = FrameAccess.getClosure(frame).getHomeContext();
-            assert homeContext.getProcess() != null;
-            final boolean homeContextNotOnTheStack = homeContext.getProcess() != getActiveProcessNode.execute();
-            final Object caller = homeContext.getFrameSender();
-            if (caller == NilObject.SINGLETON || homeContextNotOnTheStack) {
-                CompilerDirectives.transferToInterpreter();
-                final ContextObject contextObject = GetOrCreateContextNode.getOrCreateFromActiveProcessUncached(frame);
-                lookupContext().cannotReturn.executeAsSymbolSlow(frame, contextObject, getReturnValue(frame));
-                throw SqueakException.create("Should not reach");
-            }
-            throw new NonLocalReturn(getReturnValue(frame), caller);
+            return nonLocalReturn(frame, getActiveProcessNode);
         }
 
         @Override
