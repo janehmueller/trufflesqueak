@@ -596,6 +596,7 @@ public final class SqueakImageContext {
         return options.isTesting;
     }
 
+    @TruffleBoundary
     public Object getScope() {
         ensureLoaded();
         if (smalltalkScope == null) {
